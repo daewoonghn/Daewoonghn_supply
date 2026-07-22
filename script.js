@@ -16,13 +16,31 @@ function formatNumber(value) {
   return Number(value || 0).toLocaleString("ko-KR");
 }
 
+function setText(id, value) {
+  const element = document.getElementById(id);
+  if (element) {
+    element.textContent = value;
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 function getGvizBaseUrl() {
   const publishedMatch = PUBLISHED_SHEET_URL.match(/\/d\/e\/([^/]+)/);
+
   if (publishedMatch) {
     return `https://docs.google.com/spreadsheets/d/e/${publishedMatch[1]}/gviz/tq`;
   }
 
   const normalMatch = PUBLISHED_SHEET_URL.match(/\/d\/([^/]+)/);
+
   if (normalMatch) {
     return `https://docs.google.com/spreadsheets/d/${normalMatch[1]}/gviz/tq`;
   }
@@ -30,7 +48,7 @@ function getGvizBaseUrl() {
   throw new Error("구글시트 게시 링크 형식이 올바르지 않습니다.");
 }
 
-function loadSheet(sheetName) {
+function loadSheet(sheetName, rangeA1) {
   return new Promise((resolve, reject) => {
     const callbackName =
       "sheetCallback_" + Date.now() + "_" + Math.random().toString(36).slice(2);
@@ -39,31 +57,48 @@ function loadSheet(sheetName) {
       try {
         delete window[callbackName];
 
-        if (!response || response.status === "error") {
-          reject(response);
+        if (!response) {
+          reject(new Error(sheetName + " 응답이 없습니다."));
+          return;
+        }
+
+        if (response.status === "error") {
+          const detail = response.errors
+            ? response.errors.map(error => error.detailed_message || error.message).join(" / ")
+            : "상세 오류 없음";
+
+          reject(new Error(sheetName + " 시트 오류: " + detail));
           return;
         }
 
         const rows = convertGoogleTableToRows(response.table);
+
+        console.log(sheetName + " 불러오기 성공:", rows.length + "행");
+
         resolve(rows);
       } catch (error) {
-        reject(error);
+        reject(new Error(sheetName + " 처리 중 오류: " + error.message));
       }
     };
 
+    const params = new URLSearchParams();
+    params.set("tqx", "out:json;responseHandler:" + callbackName);
+    params.set("sheet", sheetName);
+
+    if (rangeA1) {
+      params.set("range", rangeA1);
+    }
+
+    params.set("t", Date.now());
+
     const script = document.createElement("script");
-    script.src =
-      getGvizBaseUrl() +
-      "?tqx=out:json;responseHandler:" +
-      callbackName +
-      "&sheet=" +
-      encodeURIComponent(sheetName) +
-      "&t=" +
-      Date.now();
+    script.src = getGvizBaseUrl() + "?" + params.toString();
+
+    console.log("요청 URL:", sheetName, script.src);
 
     script.onerror = function() {
       delete window[callbackName];
-      reject(new Error(sheetName + " 시트를 불러오지 못했습니다."));
+      reject(new Error(sheetName + " 시트 스크립트 로드 실패"));
     };
 
     document.body.appendChild(script);
@@ -73,11 +108,23 @@ function loadSheet(sheetName) {
 function convertGoogleTableToRows(table) {
   if (!table || !table.rows) return [];
 
+  const colCount = table.cols ? table.cols.length : 0;
+
   return table.rows.map(row => {
-    return row.c.map(cell => {
-      if (!cell) return "";
-      return cell.v ?? "";
-    });
+    const cells = row.c || [];
+    const result = [];
+
+    for (let i = 0; i < colCount; i++) {
+      const cell = cells[i];
+
+      if (!cell) {
+        result.push("");
+      } else {
+        result.push(cell.f ?? cell.v ?? "");
+      }
+    }
+
+    return result;
   });
 }
 
@@ -94,30 +141,49 @@ function normalize(value) {
 function toNumber(value) {
   if (value === "" || value === null || value === undefined) return 0;
 
-  const number = Number(String(value).replace(/,/g, ""));
+  const cleaned = String(value)
+    .replace(/,/g, "")
+    .replace(/[^\d.-]/g, "");
+
+  if (cleaned === "" || cleaned === "-" || cleaned === ".") return 0;
+
+  const number = Number(cleaned);
+
   return isNaN(number) ? 0 : number;
 }
 
 function buildItemMaster(rows) {
   const byItem = {};
 
-  rows.forEach((row, index) => {
-    if (index < 2) return;
-
+  rows.forEach(row => {
     const category = cleanText(row[0]);
     const item = cleanText(row[1]);
     const itemCode = cleanText(row[2]);
     const unitPrice = toNumber(row[3]);
 
-    if (!item) return;
+    const normalizedCategory = normalize(category);
+    const normalizedItem = normalize(item);
 
-    byItem[normalize(item)] = {
+    if (!item) return;
+    if (normalizedCategory === "구분") return;
+    if (
+      normalizedItem === "품목명" ||
+      normalizedItem === "소모품" ||
+      normalizedItem === "소모품명" ||
+      normalizedItem === "품목"
+    ) {
+      return;
+    }
+
+    byItem[normalizedItem] = {
       category,
       item,
       itemCode,
       unitPrice
     };
   });
+
+  console.log("품목마스터:", byItem);
 
   return byItem;
 }
@@ -132,9 +198,7 @@ function getMasterData(master, item) {
 }
 
 function readApplicationRows(rows, config, master) {
-  return rows.map((row, index) => {
-    if (index < 2) return null;
-
+  return rows.map(row => {
     const department = cleanText(row[config.deptCol - 1]);
     const name = cleanText(row[config.nameCol - 1]);
     const item = cleanText(row[config.itemCol - 1]);
@@ -160,11 +224,7 @@ function readApplicationRows(rows, config, master) {
 }
 
 function readManualSuppliesRows(rows, master) {
-  return rows.map((row, index) => {
-    const sheetRowNumber = index + 1;
-
-    if (sheetRowNumber < 28 || sheetRowNumber > 29) return null;
-
+  return rows.map(row => {
     const item = cleanText(row[0]);
     const qty = toNumber(row[2]);
 
@@ -224,24 +284,26 @@ function getTopCategory(categorySummary) {
 }
 
 function renderDashboard(data) {
-  document.getElementById("baseDate").textContent = data.baseDate || "-";
-  document.getElementById("monthlyAmount").textContent = formatWon(data.monthlyAmount);
-  document.getElementById("monthlyQty").textContent = formatNumber(data.monthlyQty) + "개";
-  document.getElementById("monthChange").textContent = data.monthChange || "-";
-  document.getElementById("topCategory").textContent = data.topCategory || "-";
+  setText("baseDate", data.baseDate || "-");
+  setText("monthlyAmount", formatWon(data.monthlyAmount));
+  setText("monthlyQty", formatNumber(data.monthlyQty) + "개");
+  setText("monthChange", data.monthChange || "-");
+  setText("topCategory", data.topCategory || "-");
 
   const categories = data.categories || {};
 
-  document.getElementById("safetyQty").textContent = formatNumber(categories.safety) + "개";
-  document.getElementById("clothesQty").textContent = formatNumber(categories.clothes) + "개";
-  document.getElementById("nameTagQty").textContent = formatNumber(categories.nameTag) + "개";
-  document.getElementById("suppliesQty").textContent = formatNumber(categories.supplies) + "개";
+  setText("safetyQty", formatNumber(categories.safety) + "개");
+  setText("clothesQty", formatNumber(categories.clothes) + "개");
+  setText("nameTagQty", formatNumber(categories.nameTag) + "개");
+  setText("suppliesQty", formatNumber(categories.supplies) + "개");
 
   renderHistoryTable(data.recentHistory || []);
 }
 
 function renderHistoryTable(rows) {
   const tbody = document.getElementById("historyTableBody");
+
+  if (!tbody) return;
 
   if (!rows || rows.length === 0) {
     tbody.innerHTML = `
@@ -254,32 +316,92 @@ function renderHistoryTable(rows) {
 
   tbody.innerHTML = rows.map(row => `
     <tr>
-      <td>${row.month || "발주예정"}</td>
-      <td>${row.category || "-"}</td>
-      <td>${row.department || "-"}</td>
-      <td>${row.name || "-"}</td>
-      <td>${row.item || "-"}</td>
+      <td>${escapeHtml(row.month || "발주예정")}</td>
+      <td>${escapeHtml(row.category || "-")}</td>
+      <td>${escapeHtml(row.department || "-")}</td>
+      <td>${escapeHtml(row.name || "-")}</td>
+      <td>${escapeHtml(row.item || "-")}</td>
       <td>${formatNumber(row.qty)}</td>
       <td>${formatWon(row.amount)}</td>
     </tr>
   `).join("");
 }
 
+async function loadAllSheets() {
+  const requests = [
+    {
+      key: "safetyRows",
+      label: SHEETS.safety,
+      promise: loadSheet(SHEETS.safety)
+    },
+    {
+      key: "clothesRows",
+      label: SHEETS.clothes,
+      promise: loadSheet(SHEETS.clothes)
+    },
+    {
+      key: "nameTagRows",
+      label: SHEETS.nameTag,
+      promise: loadSheet(SHEETS.nameTag)
+    },
+    {
+      key: "orderRows",
+      label: SHEETS.order + " A28:C29",
+      promise: loadSheet(SHEETS.order, "A28:C29")
+    },
+    {
+      key: "masterRows",
+      label: SHEETS.itemMaster,
+      promise: loadSheet(SHEETS.itemMaster)
+    }
+  ];
+
+  const results = await Promise.allSettled(requests.map(request => request.promise));
+
+  const loaded = {};
+  const failed = [];
+
+  results.forEach((result, index) => {
+    const request = requests[index];
+
+    if (result.status === "fulfilled") {
+      loaded[request.key] = result.value;
+    } else {
+      failed.push(request.label + " → " + result.reason.message);
+    }
+  });
+
+  if (failed.length > 0) {
+    throw new Error(failed.join("\n"));
+  }
+
+  return loaded;
+}
+
 async function loadDashboardData() {
   try {
-    const [
+    renderDashboard({
+      baseDate: "불러오는 중",
+      monthlyAmount: 0,
+      monthlyQty: 0,
+      monthChange: "-",
+      topCategory: "-",
+      categories: {
+        safety: 0,
+        clothes: 0,
+        nameTag: 0,
+        supplies: 0
+      },
+      recentHistory: []
+    });
+
+    const {
       safetyRows,
       clothesRows,
       nameTagRows,
       orderRows,
       masterRows
-    ] = await Promise.all([
-      loadSheet(SHEETS.safety),
-      loadSheet(SHEETS.clothes),
-      loadSheet(SHEETS.nameTag),
-      loadSheet(SHEETS.order),
-      loadSheet(SHEETS.itemMaster)
-    ]);
+    } = await loadAllSheets();
 
     const master = buildItemMaster(masterRows);
 
@@ -310,6 +432,8 @@ async function loadDashboardData() {
     }, master));
 
     rows = rows.concat(readManualSuppliesRows(orderRows, master));
+
+    console.log("최종 발주 예정 데이터:", rows);
 
     const monthlyAmount = rows.reduce((sum, row) => sum + row.amount, 0);
     const monthlyQty = rows.reduce((sum, row) => sum + row.qty, 0);
@@ -348,7 +472,7 @@ async function loadDashboardData() {
 
     renderDashboard(data);
   } catch (error) {
-    console.error(error);
+    console.error("구글시트 연결 오류:", error);
 
     renderDashboard({
       baseDate: "-",
@@ -365,7 +489,7 @@ async function loadDashboardData() {
       recentHistory: []
     });
 
-    alert("구글시트 게시 데이터를 불러오지 못했습니다. 게시 링크와 시트명을 확인해주세요.");
+    alert("구글시트 연결 오류:\n" + error.message);
   }
 }
 
