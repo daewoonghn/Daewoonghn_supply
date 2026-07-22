@@ -57,88 +57,97 @@ function getPublishedId() {
   return match[1];
 }
 
-function getGvizBaseUrl() {
+function getCsvUrl(gid) {
   const publishedId = getPublishedId();
-  return `https://docs.google.com/spreadsheets/d/e/${publishedId}/gviz/tq`;
+
+  return (
+    "https://docs.google.com/spreadsheets/d/e/" +
+    publishedId +
+    "/pub?gid=" +
+    encodeURIComponent(gid) +
+    "&single=true&output=csv&t=" +
+    Date.now()
+  );
 }
 
-function loadSheetByGid(sheetInfo, rangeA1) {
-  return new Promise((resolve, reject) => {
-    const callbackName =
-      "sheetCallback_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+async function loadCsvSheet(sheetInfo) {
+  const url = getCsvUrl(sheetInfo.gid);
 
-    window[callbackName] = function(response) {
-      try {
-        delete window[callbackName];
+  console.log(sheetInfo.name + " CSV 요청:", url);
 
-        if (!response) {
-          reject(new Error(sheetInfo.name + " 응답이 없습니다."));
-          return;
-        }
-
-        if (response.status === "error") {
-          const detail = response.errors
-            ? response.errors.map(error => error.detailed_message || error.message).join(" / ")
-            : "상세 오류 없음";
-
-          reject(new Error(sheetInfo.name + " 오류: " + detail));
-          return;
-        }
-
-        const rows = convertGoogleTableToRows(response.table);
-        console.log(sheetInfo.name + " 불러오기 성공:", rows.length + "행");
-
-        resolve(rows);
-      } catch (error) {
-        reject(new Error(sheetInfo.name + " 처리 중 오류: " + error.message));
-      }
-    };
-
-    const params = new URLSearchParams();
-    params.set("tqx", "out:json;responseHandler:" + callbackName);
-    params.set("gid", sheetInfo.gid);
-
-    if (rangeA1) {
-      params.set("range", rangeA1);
-    }
-
-    params.set("t", Date.now());
-
-    const script = document.createElement("script");
-    script.src = getGvizBaseUrl() + "?" + params.toString();
-
-    console.log("요청 URL:", sheetInfo.name, script.src);
-
-    script.onerror = function() {
-      delete window[callbackName];
-      reject(new Error(sheetInfo.name + " 스크립트 로드 실패"));
-    };
-
-    document.body.appendChild(script);
+  const response = await fetch(url, {
+    method: "GET",
+    cache: "no-store"
   });
+
+  if (!response.ok) {
+    throw new Error(sheetInfo.name + " CSV 요청 실패: " + response.status);
+  }
+
+  const text = await response.text();
+
+  if (!text || text.trim() === "") {
+    return [];
+  }
+
+  if (text.includes("<html") || text.includes("<!DOCTYPE")) {
+    throw new Error(sheetInfo.name + " CSV가 아니라 HTML이 반환되었습니다. 게시 설정을 확인해주세요.");
+  }
+
+  const rows = parseCsv(text);
+
+  console.log(sheetInfo.name + " CSV 불러오기 성공:", rows.length + "행");
+
+  return rows;
 }
 
-function convertGoogleTableToRows(table) {
-  if (!table || !table.rows) return [];
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let value = "";
+  let inQuotes = false;
 
-  const colCount = table.cols ? table.cols.length : 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
 
-  return table.rows.map(row => {
-    const cells = row.c || [];
-    const result = [];
-
-    for (let i = 0; i < colCount; i++) {
-      const cell = cells[i];
-
-      if (!cell) {
-        result.push("");
-      } else {
-        result.push(cell.f ?? cell.v ?? "");
-      }
+    if (char === '"' && inQuotes && nextChar === '"') {
+      value += '"';
+      i++;
+      continue;
     }
 
-    return result;
-  });
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      row.push(value);
+      value = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && nextChar === "\n") {
+        i++;
+      }
+
+      row.push(value);
+      rows.push(row);
+
+      row = [];
+      value = "";
+      continue;
+    }
+
+    value += char;
+  }
+
+  row.push(value);
+  rows.push(row);
+
+  return rows;
 }
 
 function cleanText(value) {
@@ -179,6 +188,7 @@ function buildItemMaster(rows) {
 
     if (!item) return;
     if (normalizedCategory === "구분") return;
+
     if (
       normalizedItem === "품목명" ||
       normalizedItem === "소모품" ||
@@ -211,7 +221,11 @@ function getMasterData(master, item) {
 }
 
 function readApplicationRows(rows, config, master) {
-  return rows.map(row => {
+  return rows.map((row, index) => {
+    const sheetRowNumber = index + 1;
+
+    if (sheetRowNumber < 3) return null;
+
     const department = cleanText(row[config.deptCol - 1]);
     const name = cleanText(row[config.nameCol - 1]);
     const item = cleanText(row[config.itemCol - 1]);
@@ -237,7 +251,11 @@ function readApplicationRows(rows, config, master) {
 }
 
 function readManualSuppliesRows(rows, master) {
-  return rows.map(row => {
+  return rows.map((row, index) => {
+    const sheetRowNumber = index + 1;
+
+    if (sheetRowNumber < 28 || sheetRowNumber > 29) return null;
+
     const item = cleanText(row[0]);
     const qty = toNumber(row[2]);
 
@@ -345,27 +363,27 @@ async function loadAllSheets() {
     {
       key: "safetyRows",
       label: SHEETS.safety.name,
-      promise: loadSheetByGid(SHEETS.safety)
+      promise: loadCsvSheet(SHEETS.safety)
     },
     {
       key: "clothesRows",
       label: SHEETS.clothes.name,
-      promise: loadSheetByGid(SHEETS.clothes)
+      promise: loadCsvSheet(SHEETS.clothes)
     },
     {
       key: "nameTagRows",
       label: SHEETS.nameTag.name,
-      promise: loadSheetByGid(SHEETS.nameTag)
+      promise: loadCsvSheet(SHEETS.nameTag)
     },
     {
       key: "orderRows",
-      label: SHEETS.order.name + " A28:C29",
-      promise: loadSheetByGid(SHEETS.order, "A28:C29")
+      label: SHEETS.order.name,
+      promise: loadCsvSheet(SHEETS.order)
     },
     {
       key: "masterRows",
       label: SHEETS.itemMaster.name,
-      promise: loadSheetByGid(SHEETS.itemMaster)
+      promise: loadCsvSheet(SHEETS.itemMaster)
     }
   ];
 
