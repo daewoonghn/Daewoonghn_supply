@@ -1,11 +1,26 @@
 const PUBLISHED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSFbe939fEC-BfJnBqWJFhAKJkEFmH8ANwF7LIos16BSajm6EZkz1_dPnO4vMC2GUl3IY5r9PcAdY1t/pubhtml";
 
 const SHEETS = {
-  safety: "★ 안전화&방진화 신청",
-  clothes: "★ 작업복 신청",
-  nameTag: "명찰 신청",
-  order: "발주",
-  itemMaster: "Ref. 품목마스터"
+  safety: {
+    name: "★ 안전화&방진화 신청",
+    gid: "0"
+  },
+  clothes: {
+    name: "★ 작업복 신청",
+    gid: "1280118521"
+  },
+  nameTag: {
+    name: "명찰 신청",
+    gid: "1695498421"
+  },
+  order: {
+    name: "발주",
+    gid: "1007978871"
+  },
+  itemMaster: {
+    name: "Ref. 품목마스터",
+    gid: "621949629"
+  }
 };
 
 function formatWon(value) {
@@ -32,23 +47,22 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function getGvizBaseUrl() {
-  const publishedMatch = PUBLISHED_SHEET_URL.match(/\/d\/e\/([^/]+)/);
+function getPublishedId() {
+  const match = PUBLISHED_SHEET_URL.match(/\/d\/e\/([^/]+)/);
 
-  if (publishedMatch) {
-    return `https://docs.google.com/spreadsheets/d/e/${publishedMatch[1]}/gviz/tq`;
+  if (!match) {
+    throw new Error("구글시트 게시 링크 형식이 올바르지 않습니다.");
   }
 
-  const normalMatch = PUBLISHED_SHEET_URL.match(/\/d\/([^/]+)/);
-
-  if (normalMatch) {
-    return `https://docs.google.com/spreadsheets/d/${normalMatch[1]}/gviz/tq`;
-  }
-
-  throw new Error("구글시트 게시 링크 형식이 올바르지 않습니다.");
+  return match[1];
 }
 
-function loadSheet(sheetName, rangeA1) {
+function getGvizBaseUrl() {
+  const publishedId = getPublishedId();
+  return `https://docs.google.com/spreadsheets/d/e/${publishedId}/gviz/tq`;
+}
+
+function loadSheetByGid(sheetInfo, rangeA1) {
   return new Promise((resolve, reject) => {
     const callbackName =
       "sheetCallback_" + Date.now() + "_" + Math.random().toString(36).slice(2);
@@ -58,7 +72,7 @@ function loadSheet(sheetName, rangeA1) {
         delete window[callbackName];
 
         if (!response) {
-          reject(new Error(sheetName + " 응답이 없습니다."));
+          reject(new Error(sheetInfo.name + " 응답이 없습니다."));
           return;
         }
 
@@ -67,23 +81,22 @@ function loadSheet(sheetName, rangeA1) {
             ? response.errors.map(error => error.detailed_message || error.message).join(" / ")
             : "상세 오류 없음";
 
-          reject(new Error(sheetName + " 시트 오류: " + detail));
+          reject(new Error(sheetInfo.name + " 오류: " + detail));
           return;
         }
 
         const rows = convertGoogleTableToRows(response.table);
-
-        console.log(sheetName + " 불러오기 성공:", rows.length + "행");
+        console.log(sheetInfo.name + " 불러오기 성공:", rows.length + "행");
 
         resolve(rows);
       } catch (error) {
-        reject(new Error(sheetName + " 처리 중 오류: " + error.message));
+        reject(new Error(sheetInfo.name + " 처리 중 오류: " + error.message));
       }
     };
 
     const params = new URLSearchParams();
     params.set("tqx", "out:json;responseHandler:" + callbackName);
-    params.set("sheet", sheetName);
+    params.set("gid", sheetInfo.gid);
 
     if (rangeA1) {
       params.set("range", rangeA1);
@@ -94,11 +107,11 @@ function loadSheet(sheetName, rangeA1) {
     const script = document.createElement("script");
     script.src = getGvizBaseUrl() + "?" + params.toString();
 
-    console.log("요청 URL:", sheetName, script.src);
+    console.log("요청 URL:", sheetInfo.name, script.src);
 
     script.onerror = function() {
       delete window[callbackName];
-      reject(new Error(sheetName + " 시트 스크립트 로드 실패"));
+      reject(new Error(sheetInfo.name + " 스크립트 로드 실패"));
     };
 
     document.body.appendChild(script);
@@ -331,28 +344,28 @@ async function loadAllSheets() {
   const requests = [
     {
       key: "safetyRows",
-      label: SHEETS.safety,
-      promise: loadSheet(SHEETS.safety)
+      label: SHEETS.safety.name,
+      promise: loadSheetByGid(SHEETS.safety)
     },
     {
       key: "clothesRows",
-      label: SHEETS.clothes,
-      promise: loadSheet(SHEETS.clothes)
+      label: SHEETS.clothes.name,
+      promise: loadSheetByGid(SHEETS.clothes)
     },
     {
       key: "nameTagRows",
-      label: SHEETS.nameTag,
-      promise: loadSheet(SHEETS.nameTag)
+      label: SHEETS.nameTag.name,
+      promise: loadSheetByGid(SHEETS.nameTag)
     },
     {
       key: "orderRows",
-      label: SHEETS.order + " A28:C29",
-      promise: loadSheet(SHEETS.order, "A28:C29")
+      label: SHEETS.order.name + " A28:C29",
+      promise: loadSheetByGid(SHEETS.order, "A28:C29")
     },
     {
       key: "masterRows",
-      label: SHEETS.itemMaster,
-      promise: loadSheet(SHEETS.itemMaster)
+      label: SHEETS.itemMaster.name,
+      promise: loadSheetByGid(SHEETS.itemMaster)
     }
   ];
 
