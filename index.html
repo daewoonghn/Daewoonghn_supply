@@ -1,118 +1,102 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>소모품 대시보드</title>
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: #f5f0eb;
-      color: #222;
-    }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>소모품 신청/발주 대시보드</title>
 
-    header {
-      background: linear-gradient(135deg, #7B2D00, #E85D04);
-      color: white;
-      padding: 32px;
-    }
-
-    header h1 {
-      margin: 0;
-      font-size: 32px;
-    }
-
-    header p {
-      margin: 8px 0 0;
-      opacity: 0.9;
-    }
-
-    main {
-      padding: 24px;
-    }
-
-    .kpi-wrap {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-
-    .card {
-      background: white;
-      border-radius: 16px;
-      padding: 20px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-    }
-
-    .card-title {
-      font-size: 14px;
-      color: #666;
-      margin-bottom: 8px;
-    }
-
-    .card-value {
-      font-size: 26px;
-      font-weight: bold;
-    }
-
-    .section-title {
-      font-size: 20px;
-      font-weight: bold;
-      margin: 24px 0 12px;
-    }
-
-    .placeholder {
-      height: 260px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #777;
-      border: 2px dashed #ddd;
-      border-radius: 16px;
-      background: white;
-    }
-  </style>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header>
-    <h1>소모품 신청/발주 대시보드</h1>
-    <p>안전화 · 작업복 · 명찰 · 소모품 사용 현황</p>
+  <header class="header">
+    <div>
+      <h1>소모품 신청/발주 대시보드</h1>
+      <p>안전화 · 방진화 · 작업복 · 명찰 · 소모품 사용 현황</p>
+    </div>
+
+    <div class="date-box">
+      <span>기준일</span>
+      <strong id="baseDate">-</strong>
+    </div>
   </header>
 
-  <main>
-    <div class="kpi-wrap">
+  <main class="main">
+    <section class="kpi-wrap">
       <div class="card">
         <div class="card-title">이번 달 사용금액</div>
-        <div class="card-value">-</div>
+        <div class="card-value" id="monthlyAmount">-</div>
       </div>
 
       <div class="card">
         <div class="card-title">이번 달 신청수량</div>
-        <div class="card-value">-</div>
+        <div class="card-value" id="monthlyQty">-</div>
       </div>
 
       <div class="card">
         <div class="card-title">전월 대비</div>
-        <div class="card-value">-</div>
+        <div class="card-value" id="monthChange">-</div>
       </div>
 
       <div class="card">
         <div class="card-title">최다 사용 구분</div>
-        <div class="card-value">-</div>
+        <div class="card-value" id="topCategory">-</div>
       </div>
-    </div>
+    </section>
 
-    <div class="section-title">월별 비용 트렌드</div>
-    <div class="placeholder">
-      차트 영역 - 다음 단계에서 구글시트 데이터 연결 예정
-    </div>
+    <section>
+      <div class="section-title">월별 비용 트렌드</div>
+      <div class="placeholder">
+        차트 영역 - 구글시트 데이터 연결 후 표시 예정
+      </div>
+    </section>
 
-    <div class="section-title">구분별 사용 현황</div>
-    <div class="placeholder">
-      안전화 / 작업복 / 명찰 / 소모품 현황 표시 예정
-    </div>
+    <section>
+      <div class="section-title">구분별 사용 현황</div>
+      <div class="category-grid">
+        <div class="category-card">
+          <span>안전화/방진화</span>
+          <strong id="safetyQty">-</strong>
+        </div>
+        <div class="category-card">
+          <span>작업복</span>
+          <strong id="clothesQty">-</strong>
+        </div>
+        <div class="category-card">
+          <span>명찰</span>
+          <strong id="nameTagQty">-</strong>
+        </div>
+        <div class="category-card">
+          <span>소모품</span>
+          <strong id="suppliesQty">-</strong>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-title">최근 신청 이력</div>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>주문월</th>
+              <th>구분</th>
+              <th>부서</th>
+              <th>성함</th>
+              <th>품목</th>
+              <th>수량</th>
+              <th>금액</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody">
+            <tr>
+              <td colspan="7">데이터 연결 전입니다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   </main>
+
+  <script src="script.js"></script>
 </body>
 </html>
