@@ -2,6 +2,8 @@ const PUBLISHED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSF
 
 const ANNUAL_BUDGET = 55620000;
 
+const FIXED_NAME_TAG_ITEM = "명찰(향남공장클립집게명찰)";
+
 const SHEETS = {
   safety: { name: "★ 안전화&방진화 신청", gid: "0" },
   clothes: { name: "★ 작업복 신청", gid: "1280118521" },
@@ -148,6 +150,13 @@ function parseDate(value) {
 
   const text = String(value).trim();
 
+  const serialNumber = Number(text);
+  if (!isNaN(serialNumber) && serialNumber > 20000 && serialNumber < 80000) {
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const date = new Date(excelEpoch.getTime() + serialNumber * 24 * 60 * 60 * 1000);
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  }
+
   const ymd = text.match(/(\d{4})[.\-\/년\s]*(\d{1,2})[.\-\/월\s]*(\d{1,2})?/);
   if (ymd) {
     const year = Number(ymd[1]);
@@ -221,6 +230,10 @@ function getMasterData(master, item) {
   };
 }
 
+function isNameTagCategory(category) {
+  return String(category || "").includes("명찰");
+}
+
 function readApplicationRows(rows, config, master) {
   return rows.map((row, index) => {
     const sheetRowNumber = index + 1;
@@ -289,30 +302,40 @@ function readHistoryRows(rows, master) {
     const sheetRowNumber = index + 1;
     if (sheetRowNumber < 3) return null;
 
-    const category = cleanText(row[0]);
+    const rawCategory = cleanText(row[0]);
     const department = cleanText(row[1]);
     const name = cleanText(row[2]);
-    const item = cleanText(row[3]);
+    const rawItem = cleanText(row[3]);
     const qty = toNumber(row[4]);
     const orderDate = parseDate(row[5]);
 
-    if (!item || qty <= 0 || !orderDate) return null;
+    if (qty <= 0 || !orderDate) return null;
+
+    const category = isNameTagCategory(rawCategory) ? "명찰" : rawCategory;
+    const item = isNameTagCategory(category) ? FIXED_NAME_TAG_ITEM : rawItem;
+
+    if (!item) return null;
+
+    const usageDate = getNextOrderMonthDate(orderDate);
 
     const masterData = getMasterData(master, item);
     const unitPrice = toNumber(masterData.unitPrice);
-    const amount = qty * unitPrice;
+
+    const savedAmount = toNumber(row[6]);
+    const amount = savedAmount > 0 ? savedAmount : qty * unitPrice;
 
     return {
-      monthKey: getMonthKey(orderDate),
-      monthLabel: getMonthLabel(orderDate),
-      category: masterData.category || category || "-",
+      monthKey: getMonthKey(usageDate),
+      monthLabel: getMonthLabel(usageDate),
+      category: category || masterData.category || "-",
       department: department || "-",
       name: name || "-",
       item,
       qty,
       unitPrice,
       amount,
-      date: orderDate,
+      orderDate,
+      date: usageDate,
       source: "신청 이력"
     };
   }).filter(Boolean);
@@ -326,39 +349,6 @@ function getCategoryKey(category) {
   if (text.includes("명찰")) return "nameTag";
 
   return "supplies";
-}
-
-function summarizeByItem(rows) {
-  const map = {};
-
-  rows.forEach(row => {
-    const key = normalize(row.item);
-
-    if (!key) return;
-
-    if (!map[key]) {
-      map[key] = {
-        item: row.item,
-        qty: 0,
-        amount: 0
-      };
-    }
-
-    map[key].qty += row.qty;
-    map[key].amount += row.amount;
-  });
-
-  return Object.values(map).sort((a, b) => {
-    if (b.qty !== a.qty) return b.qty - a.qty;
-    return b.amount - a.amount;
-  });
-}
-
-function getTopItem(itemSummary) {
-  if (!itemSummary || itemSummary.length === 0) return "-";
-
-  const top = itemSummary[0];
-  return top.item + " (" + formatNumber(top.qty) + "개)";
 }
 
 function summarizeMonthly(rows) {
@@ -398,7 +388,32 @@ function summarizeDepartmentMonthly(rows) {
         qty: 0,
         amount: 0
       };
+    if (!key) return;
+
+    if (!map[key]) {
+      map[key] = {
+        monthKey: key,
+        monthLabel: row.monthLabel,
+        qty: 0,
+        amount: 0
+      };
     }
+
+    map[key].qty += row.qty;
+    map[key].amount += row.amount;
+  });
+
+  return Object.values(map).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+}
+
+function summarizeDepartmentMonthly(rows) {
+  const map = {};
+
+  rows.forEach(row => {
+    const key = row.monthKey + "|" + row.department;
+
+    if (!map[key]) {
+      map[key] = }
 
     map[key].qty += row.qty;
     map[key].amount += row.amount;
@@ -428,10 +443,10 @@ function getMonthChange(monthlyTrend) {
 
 function renderDashboard(data) {
   setText("baseDate", data.baseDate || "-");
-  setText("monthlyAmount", formatWon(data.monthlyAmount));
-  setText("monthlyQty", formatNumber(data.monthlyQty) + "개");
+  setText("monthlyAmount", formatWon(data.currentOrderAmount));
+  setText("monthlyQty", formatNumber(data.currentOrderQty) + "개");
   setText("monthChange", data.monthChange || "-");
-  setText("topCategory", data.topCategory || "-");
+  setText("topBudgetUsage", formatPercent(data.usageRate));
 
   const categories = data.categories || {};
 
@@ -440,12 +455,10 @@ function renderDashboard(data) {
   setText("nameTagQty", formatNumber(categories.nameTag) + "개");
   setText("suppliesQty", formatNumber(categories.supplies) + "개");
 
-  const budget = data.budget || {};
-
-  setText("annualBudget", formatWon(budget.annualBudget));
-  setText("usedAmount", formatWon(budget.usedAmount));
-  setText("budgetUsageRate", formatPercent(budget.usageRate));
-  setText("remainingBudget", formatWon(budget.remainingBudget));
+  setText("annualBudget", formatWon(data.annualBudget));
+  setText("usedAmount", formatWon(data.historyYearAmount));
+  setText("currentOrderBudgetAmount", formatWon(data.currentOrderAmount));
+  setText("remainingBudget", formatWon(data.remainingBudget));
 
   renderMonthlyTrend(data.monthlyTrend || []);
   renderDepartmentMonthly(data.departmentMonthly || []);
@@ -457,7 +470,7 @@ function renderMonthlyTrend(rows) {
   if (!container) return;
 
   if (!rows || rows.length === 0) {
-    container.innerHTML = "월별 사용금액 데이터가 없습니다.";
+    container.innerHTML = "신청 이력 기준 월별 사용금액 데이터가 없습니다.";
     return;
   }
 
@@ -486,7 +499,7 @@ function renderDepartmentMonthly(rows) {
   if (!rows || rows.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="4">부서별 월별 사용금액 데이터가 없습니다.</td>
+        <td colspan="4">신청 이력 기준 부서별 월별 사용금액 데이터가 없습니다.</td>
       </tr>
     `;
     return;
@@ -532,21 +545,18 @@ async function loadDashboardData() {
   try {
     renderDashboard({
       baseDate: "불러오는 중",
-      monthlyAmount: 0,
-      monthlyQty: 0,
+      currentOrderAmount: 0,
+      currentOrderQty: 0,
       monthChange: "-",
-      topCategory: "-",
+      usageRate: 0,
+      annualBudget: ANNUAL_BUDGET,
+      historyYearAmount: 0,
+      remainingBudget: ANNUAL_BUDGET,
       categories: {
         safety: 0,
         clothes: 0,
         nameTag: 0,
         supplies: 0
-      },
-      budget: {
-        annualBudget: ANNUAL_BUDGET,
-        usedAmount: 0,
-        usageRate: 0,
-        remainingBudget: ANNUAL_BUDGET
       },
       monthlyTrend: [],
       departmentMonthly: [],
@@ -596,7 +606,7 @@ async function loadDashboardData() {
       itemCol: 3,
       qtyCol: 4,
       forceCategory: true,
-      fixedItem: "명찰(향남공장클립집게명찰)"
+      fixedItem: FIXED_NAME_TAG_ITEM
     }, master));
 
     currentOrderRows = currentOrderRows.concat(readManualSuppliesRows(orderRows, master));
@@ -607,7 +617,7 @@ async function loadDashboardData() {
     const orderTargetDate = getNextOrderMonthDate(today);
     const orderTargetMonthKey = getMonthKey(orderTargetDate);
     const orderTargetMonthLabel = getMonthLabel(orderTargetDate);
-    const budgetYear = today.getFullYear();
+    const budgetYear = orderTargetDate.getFullYear();
 
     const currentOrderRecords = currentOrderRows.map(row => ({
       ...row,
@@ -617,21 +627,24 @@ async function loadDashboardData() {
       source: "발주예정"
     }));
 
-    const allUsageRecords = historyRecords.concat(currentOrderRecords);
+    const monthlyTrend = summarizeMonthly(historyRecords);
+    const departmentMonthly = summarizeDepartmentMonthly(historyRecords);
 
-    const annualUsageRecords = allUsageRecords.filter(row => {
+    const historyYearRecords = historyRecords.filter(row => {
       return row.date && row.date.getFullYear() === budgetYear;
     });
 
-    const usedAmount = annualUsageRecords.reduce((sum, row) => sum + row.amount, 0);
-    const remainingBudget = ANNUAL_BUDGET - usedAmount;
-    const usageRate = ANNUAL_BUDGET > 0 ? (usedAmount / ANNUAL_BUDGET) * 100 : 0;
+    const currentOrderYearRecords = currentOrderRecords.filter(row => {
+      return row.date && row.date.getFullYear() === budgetYear;
+    });
 
+    const historyYearAmount = historyYearRecords.reduce((sum, row) => sum + row.amount, 0);
     const currentOrderAmount = currentOrderRows.reduce((sum, row) => sum + row.amount, 0);
     const currentOrderQty = currentOrderRows.reduce((sum, row) => sum + row.qty, 0);
 
-    const monthlyTrend = summarizeMonthly(allUsageRecords);
-    const departmentMonthly = summarizeDepartmentMonthly(allUsageRecords);
+    const budgetUsedAmount = historyYearAmount + currentOrderYearRecords.reduce((sum, row) => sum + row.amount, 0);
+    const remainingBudget = ANNUAL_BUDGET - budgetUsedAmount;
+    const usageRate = ANNUAL_BUDGET > 0 ? (budgetUsedAmount / ANNUAL_BUDGET) * 100 : 0;
 
     const categories = {
       safety: 0,
@@ -645,21 +658,16 @@ async function loadDashboardData() {
       categories[key] += row.qty;
     });
 
-    const itemSummary = summarizeByItem(currentOrderRows);
-
     const data = {
       baseDate: new Date().toLocaleDateString("ko-KR"),
-      monthlyAmount: currentOrderAmount,
-      monthlyQty: currentOrderQty,
+      currentOrderAmount,
+      currentOrderQty,
       monthChange: getMonthChange(monthlyTrend),
-      topCategory: getTopItem(itemSummary),
+      usageRate,
+      annualBudget: ANNUAL_BUDGET,
+      historyYearAmount,
+      remainingBudget,
       categories,
-      budget: {
-        annualBudget: ANNUAL_BUDGET,
-        usedAmount,
-        remainingBudget,
-        usageRate
-      },
       monthlyTrend,
       departmentMonthly,
       orderList: currentOrderRows.map(row => ({
@@ -679,21 +687,18 @@ async function loadDashboardData() {
 
     renderDashboard({
       baseDate: "-",
-      monthlyAmount: 0,
-      monthlyQty: 0,
+      currentOrderAmount: 0,
+      currentOrderQty: 0,
       monthChange: "-",
-      topCategory: "연결 오류",
+      usageRate: 0,
+      annualBudget: ANNUAL_BUDGET,
+      historyYearAmount: 0,
+      remainingBudget: ANNUAL_BUDGET,
       categories: {
         safety: 0,
         clothes: 0,
         nameTag: 0,
         supplies: 0
-      },
-      budget: {
-        annualBudget: ANNUAL_BUDGET,
-        usedAmount: 0,
-        usageRate: 0,
-        remainingBudget: ANNUAL_BUDGET
       },
       monthlyTrend: [],
       departmentMonthly: [],
