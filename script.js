@@ -224,6 +224,39 @@ function readApplicationRows(rows, config, master) {
 
     const department = cleanText(row[config.deptCol - 1]);
     const name = cleanText(row[config.nameCol - 1]);
+    const rawItem = cleanText(row[config.itemCol - 1]);
+    const qty = toNumber(row[config.qtyCol - 1]);
+
+    const item = config.fixedItem || rawItem;
+
+    if (!item || qty <= 0) return null;
+
+    const masterData = getMasterData(master, item);
+    const unitPrice = toNumber(masterData.unitPrice);
+    const amount = qty * unitPrice;
+
+    const displayCategory = config.forceCategory
+      ? config.category
+      : masterData.category || config.category;
+
+    return {
+      category: displayCategory,
+      department: department || "-",
+      name: name || "-",
+      item,
+      itemCode: masterData.itemCode || "",
+      qty,
+      unitPrice,
+      amount
+    };
+  }).filter(Boolean);
+}
+  return rows.map((row, index) => {
+    const sheetRowNumber = index + 1;
+    if (sheetRowNumber < 3) return null;
+
+    const department = cleanText(row[config.deptCol - 1]);
+    const name = cleanText(row[config.nameCol - 1]);
     const item = cleanText(row[config.itemCol - 1]);
     const qty = toNumber(row[config.qtyCol - 1]);
 
@@ -573,12 +606,14 @@ async function loadDashboardData() {
     }, master));
 
     currentOrderRows = currentOrderRows.concat(readApplicationRows(nameTagRows, {
-      category: "명찰",
-      deptCol: 1,
-      nameCol: 2,
-      itemCol: 3,
-      qtyCol: 4
-    }, master));
+  category: "명찰",
+  deptCol: 1,
+  nameCol: 2,
+  itemCol: 3,
+  qtyCol: 4,
+  forceCategory: true,
+  fixedItem: "명찰(향남공장클립집게명찰)"
+}, master));
 
     currentOrderRows = currentOrderRows.concat(readManualSuppliesRows(orderRows, master));
 
