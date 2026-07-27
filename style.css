@@ -1,176 +1,148 @@
-* {
-  box-sizing: border-box;
-}
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>소모품 신청/발주 대시보드</title>
 
-body {
-  margin: 0;
-  font-family: Arial, "Noto Sans KR", sans-serif;
-  background: #f5f0eb;
-  color: #222;
-}
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="header">
+    <div>
+      <h1>소모품 신청/발주 대시보드</h1>
+      <p>안전화 · 방진화 · 작업복 · 명찰 · 소모품 발주 현황</p>
+    </div>
 
-.header {
-  background: linear-gradient(135deg, #7b2d00, #e85d04);
-  color: white;
-  padding: 32px;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 24px;
-}
+    <div class="date-box">
+      <span>기준일</span>
+      <strong id="baseDate">-</strong>
+    </div>
+  </header>
 
-.header h1 {
-  margin: 0;
-  font-size: 32px;
-}
+  <main class="main">
+    <section class="kpi-wrap">
+      <div class="card">
+        <div class="card-title">발주 예정금액</div>
+        <div class="card-value" id="monthlyAmount">-</div>
+      </div>
 
-.header p {
-  margin: 8px 0 0;
-  opacity: 0.9;
-}
+      <div class="card">
+        <div class="card-title">발주 예정수량</div>
+        <div class="card-value" id="monthlyQty">-</div>
+      </div>
 
-.date-box {
-  background: rgba(255, 255, 255, 0.18);
-  padding: 12px 16px;
-  border-radius: 14px;
-  min-width: 130px;
-  text-align: right;
-}
+      <div class="card">
+        <div class="card-title">월별 변화</div>
+        <div class="card-value" id="monthChange">-</div>
+      </div>
 
-.date-box span {
-  display: block;
-  font-size: 13px;
-  opacity: 0.85;
-}
+      <div class="card">
+        <div class="card-title">예산 대비 사용률</div>
+        <div class="card-value" id="topBudgetUsage">-</div>
+      </div>
+    </section>
 
-.date-box strong {
-  display: block;
-  margin-top: 4px;
-  font-size: 18px;
-}
+    <section>
+      <div class="section-title">예산 현황</div>
+      <div class="kpi-wrap">
+        <div class="card">
+          <div class="card-title">연간 예산</div>
+          <div class="card-value" id="annualBudget">-</div>
+        </div>
 
-.main {
-  padding: 24px;
-}
+        <div class="card">
+          <div class="card-title">신청이력 누적 사용금액</div>
+          <div class="card-value" id="usedAmount">-</div>
+        </div>
 
-.kpi-wrap {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 24px;
-}
+        <div class="card">
+          <div class="card-title">이번 발주 예정금액</div>
+          <div class="card-value" id="currentOrderBudgetAmount">-</div>
+        </div>
 
-.card,
-.table-card,
-.category-card {
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-}
+        <div class="card">
+          <div class="card-title">잔여예산</div>
+          <div class="card-value" id="remainingBudget">-</div>
+        </div>
+      </div>
+    </section>
 
-.card {
-  padding: 20px;
-}
+    <section>
+      <div class="section-title">월별 비용 트렌드</div>
+      <div class="chart-card" id="monthlyTrendChart">
+        데이터를 불러오는 중입니다.
+      </div>
+    </section>
 
-.card-title {
-  font-size: 14px;
-  color: #666;
-  margin-bottom: 8px;
-}
+    <section>
+      <div class="section-title">당월 발주 현황</div>
+      <div class="category-grid">
+        <div class="category-card">
+          <span>안전화/방진화</span>
+          <strong id="safetyQty">-</strong>
+        </div>
+        <div class="category-card">
+          <span>작업복</span>
+          <strong id="clothesQty">-</strong>
+        </div>
+        <div class="category-card">
+          <span>명찰</span>
+          <strong id="nameTagQty">-</strong>
+        </div>
+        <div class="category-card">
+          <span>소모품</span>
+          <strong id="suppliesQty">-</strong>
+        </div>
+      </div>
+    </section>
 
-.card-value {
-  font-size: 26px;
-  font-weight: bold;
-}
+    <section>
+      <div class="section-title">부서별 월별 사용금액</div>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>사용월</th>
+              <th>부서</th>
+              <th>수량</th>
+              <th>사용금액</th>
+            </tr>
+          </thead>
+          <tbody id="departmentMonthlyBody">
+            <tr>
+              <td colspan="4">데이터를 불러오는 중입니다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
-.section-title {
-  font-size: 20px;
-  font-weight: bold;
-  margin: 24px 0 12px;
-}
+    <section>
+      <div class="section-title">발주 예정 리스트</div>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>사용월</th>
+              <th>구분</th>
+              <th>부서</th>
+              <th>성함</th>
+              <th>품목</th>
+              <th>수량</th>
+              <th>금액</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody">
+            <tr>
+              <td colspan="7">데이터를 불러오는 중입니다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
 
-.placeholder {
-  height: 260px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #777;
-  border: 2px dashed #ddd;
-  border-radius: 16px;
-  background: white;
-}
-
-.category-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
-
-.category-card {
-  padding: 18px;
-}
-
-.category-card span {
-  display: block;
-  color: #666;
-  font-size: 14px;
-  margin-bottom: 8px;
-}
-
-.category-card strong {
-  font-size: 24px;
-}
-
-.table-card {
-  overflow: hidden;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: white;
-}
-
-th,
-td {
-  padding: 12px;
-  border-bottom: 1px solid #eee;
-  text-align: center;
-  font-size: 14px;
-}
-
-th {
-  background: #f3e5dc;
-  font-weight: bold;
-}
-
-td {
-  color: #333;
-}
-
-@media (max-width: 900px) {
-  .header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .kpi-wrap,
-  .category-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-@media (max-width: 600px) {
-  .kpi-wrap,
-  .category-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .header h1 {
-    font-size: 24px;
-  }
-
-  .main {
-    padding: 16px;
-  }
-}
+  <script src="script.js"></script>
+</body>
+</html>
