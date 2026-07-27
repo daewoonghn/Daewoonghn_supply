@@ -388,32 +388,7 @@ function summarizeDepartmentMonthly(rows) {
         qty: 0,
         amount: 0
       };
-    if (!key) return;
-
-    if (!map[key]) {
-      map[key] = {
-        monthKey: key,
-        monthLabel: row.monthLabel,
-        qty: 0,
-        amount: 0
-      };
     }
-
-    map[key].qty += row.qty;
-    map[key].amount += row.amount;
-  });
-
-  return Object.values(map).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
-}
-
-function summarizeDepartmentMonthly(rows) {
-  const map = {};
-
-  rows.forEach(row => {
-    const key = row.monthKey + "|" + row.department;
-
-    if (!map[key]) {
-      map[key] = }
 
     map[key].qty += row.qty;
     map[key].amount += row.amount;
