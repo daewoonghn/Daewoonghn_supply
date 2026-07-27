@@ -70,9 +70,19 @@
 
     <section class="dashboard-two-column">
       <div>
-        <div class="section-title">월별 비용 트렌드</div>
-        <div class="chart-card equal-scroll-card" id="monthlyTrendChart">
-          데이터를 불러오는 중입니다.
+        <div class="section-title">
+          월별 비용 트렌드
+          <span class="section-subtitle" id="selectedDepartmentLabel">(전체)</span>
+        </div>
+
+        <div class="chart-card equal-scroll-card">
+          <div class="department-filter" id="departmentFilter">
+            데이터를 불러오는 중입니다.
+          </div>
+
+          <div id="monthlyTrendChart">
+            데이터를 불러오는 중입니다.
+          </div>
         </div>
       </div>
 
@@ -98,30 +108,6 @@
             </tbody>
           </table>
         </div>
-      </div>
-    </section>
-
-    <section class="detail-section">
-      <button class="detail-button" id="toggleDepartmentTrendBtn">
-        부서별 비용트렌드 상세보기
-      </button>
-
-      <div class="table-card hidden-detail" id="departmentTrendDetail">
-        <table>
-          <thead>
-            <tr>
-              <th>사용월</th>
-              <th>부서</th>
-              <th>수량</th>
-              <th>사용금액</th>
-            </tr>
-          </thead>
-          <tbody id="departmentMonthlyBody">
-            <tr>
-              <td colspan="4">데이터를 불러오는 중입니다.</td>
-            </tr>
-          </tbody>
-        </table>
       </div>
     </section>
 
