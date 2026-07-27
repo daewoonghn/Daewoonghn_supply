@@ -148,19 +148,19 @@ function parseDate(value) {
 
   const text = String(value).trim();
 
-  const match = text.match(/(\d{4})[.\-\/년\s]*(\d{1,2})[.\-\/월\s]*(\d{1,2})?/);
+  const ymd = text.match(/(\d{4})[.\-\/년\s]*(\d{1,2})[.\-\/월\s]*(\d{1,2})?/);
+  if (ymd) {
+    const year = Number(ymd[1]);
+    const month = Number(ymd[2]);
+    const day = Number(ymd[3] || 1);
+    const date = new Date(year, month - 1, day);
+    if (!isNaN(date.getTime())) return date;
+  }
 
-  if (!match) return null;
+  const nativeDate = new Date(text.replace(/\./g, "/"));
+  if (!isNaN(nativeDate.getTime())) return nativeDate;
 
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3] || 1);
-
-  const date = new Date(year, month - 1, day);
-
-  if (isNaN(date.getTime())) return null;
-
-  return date;
+  return null;
 }
 
 function getMonthKey(date) {
@@ -171,6 +171,10 @@ function getMonthKey(date) {
 
 function getMonthLabel(date) {
   return date.getFullYear() + "." + String(date.getMonth() + 1).padStart(2, "0");
+}
+
+function getNextOrderMonthDate(baseDate) {
+  return new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 1);
 }
 
 function buildItemMaster(rows) {
@@ -241,33 +245,6 @@ function readApplicationRows(rows, config, master) {
 
     return {
       category: displayCategory,
-      department: department || "-",
-      name: name || "-",
-      item,
-      itemCode: masterData.itemCode || "",
-      qty,
-      unitPrice,
-      amount
-    };
-  }).filter(Boolean);
-}
-  return rows.map((row, index) => {
-    const sheetRowNumber = index + 1;
-    if (sheetRowNumber < 3) return null;
-
-    const department = cleanText(row[config.deptCol - 1]);
-    const name = cleanText(row[config.nameCol - 1]);
-    const item = cleanText(row[config.itemCol - 1]);
-    const qty = toNumber(row[config.qtyCol - 1]);
-
-    if (!item || qty <= 0) return null;
-
-    const masterData = getMasterData(master, item);
-    const unitPrice = toNumber(masterData.unitPrice);
-    const amount = qty * unitPrice;
-
-    return {
-      category: masterData.category || config.category,
       department: department || "-",
       name: name || "-",
       item,
@@ -351,15 +328,17 @@ function getCategoryKey(category) {
   return "supplies";
 }
 
-function summarizeByCategory(rows) {
+function summarizeByItem(rows) {
   const map = {};
 
   rows.forEach(row => {
-    const key = row.category || "-";
+    const key = normalize(row.item);
+
+    if (!key) return;
 
     if (!map[key]) {
       map[key] = {
-        name: key,
+        item: row.item,
         qty: 0,
         amount: 0
       };
@@ -369,7 +348,17 @@ function summarizeByCategory(rows) {
     map[key].amount += row.amount;
   });
 
-  return Object.values(map).sort((a, b) => b.amount - a.amount);
+  return Object.values(map).sort((a, b) => {
+    if (b.qty !== a.qty) return b.qty - a.qty;
+    return b.amount - a.amount;
+  });
+}
+
+function getTopItem(itemSummary) {
+  if (!itemSummary || itemSummary.length === 0) return "-";
+
+  const top = itemSummary[0];
+  return top.item + " (" + formatNumber(top.qty) + "개)";
 }
 
 function summarizeMonthly(rows) {
@@ -422,11 +411,6 @@ function summarizeDepartmentMonthly(rows) {
   });
 }
 
-function getTopCategory(categorySummary) {
-  if (!categorySummary || categorySummary.length === 0) return "-";
-  return categorySummary[0].name || "-";
-}
-
 function getMonthChange(monthlyTrend) {
   if (!monthlyTrend || monthlyTrend.length < 2) return "-";
 
@@ -465,7 +449,7 @@ function renderDashboard(data) {
 
   renderMonthlyTrend(data.monthlyTrend || []);
   renderDepartmentMonthly(data.departmentMonthly || []);
-  renderHistoryTable(data.recentHistory || []);
+  renderOrderList(data.orderList || []);
 }
 
 function renderMonthlyTrend(rows) {
@@ -518,7 +502,7 @@ function renderDepartmentMonthly(rows) {
   `).join("");
 }
 
-function renderHistoryTable(rows) {
+function renderOrderList(rows) {
   const tbody = document.getElementById("historyTableBody");
   if (!tbody) return;
 
@@ -533,7 +517,7 @@ function renderHistoryTable(rows) {
 
   tbody.innerHTML = rows.map(row => `
     <tr>
-      <td>${escapeHtml(row.month || "발주예정")}</td>
+      <td>${escapeHtml(row.month || "-")}</td>
       <td>${escapeHtml(row.category || "-")}</td>
       <td>${escapeHtml(row.department || "-")}</td>
       <td>${escapeHtml(row.name || "-")}</td>
@@ -566,7 +550,7 @@ async function loadDashboardData() {
       },
       monthlyTrend: [],
       departmentMonthly: [],
-      recentHistory: []
+      orderList: []
     });
 
     const [
@@ -606,45 +590,48 @@ async function loadDashboardData() {
     }, master));
 
     currentOrderRows = currentOrderRows.concat(readApplicationRows(nameTagRows, {
-  category: "명찰",
-  deptCol: 1,
-  nameCol: 2,
-  itemCol: 3,
-  qtyCol: 4,
-  forceCategory: true,
-  fixedItem: "명찰(향남공장클립집게명찰)"
-}, master));
+      category: "명찰",
+      deptCol: 1,
+      nameCol: 2,
+      itemCol: 3,
+      qtyCol: 4,
+      forceCategory: true,
+      fixedItem: "명찰(향남공장클립집게명찰)"
+    }, master));
 
     currentOrderRows = currentOrderRows.concat(readManualSuppliesRows(orderRows, master));
 
     const historyRecords = readHistoryRows(historyRows, master);
 
     const today = new Date();
-    const currentMonthKey = getMonthKey(today);
-    const currentMonthLabel = getMonthLabel(today);
+    const orderTargetDate = getNextOrderMonthDate(today);
+    const orderTargetMonthKey = getMonthKey(orderTargetDate);
+    const orderTargetMonthLabel = getMonthLabel(orderTargetDate);
+    const budgetYear = today.getFullYear();
 
     const currentOrderRecords = currentOrderRows.map(row => ({
       ...row,
-      monthKey: currentMonthKey,
-      monthLabel: currentMonthLabel,
-      date: today,
+      monthKey: orderTargetMonthKey,
+      monthLabel: orderTargetMonthLabel,
+      date: orderTargetDate,
       source: "발주예정"
     }));
 
     const allUsageRecords = historyRecords.concat(currentOrderRecords);
 
-    const historyAmount = historyRecords.reduce((sum, row) => sum + row.amount, 0);
-    const currentOrderAmount = currentOrderRows.reduce((sum, row) => sum + row.amount, 0);
-    const usedAmount = historyAmount + currentOrderAmount;
+    const annualUsageRecords = allUsageRecords.filter(row => {
+      return row.date && row.date.getFullYear() === budgetYear;
+    });
+
+    const usedAmount = annualUsageRecords.reduce((sum, row) => sum + row.amount, 0);
     const remainingBudget = ANNUAL_BUDGET - usedAmount;
     const usageRate = ANNUAL_BUDGET > 0 ? (usedAmount / ANNUAL_BUDGET) * 100 : 0;
 
+    const currentOrderAmount = currentOrderRows.reduce((sum, row) => sum + row.amount, 0);
+    const currentOrderQty = currentOrderRows.reduce((sum, row) => sum + row.qty, 0);
+
     const monthlyTrend = summarizeMonthly(allUsageRecords);
     const departmentMonthly = summarizeDepartmentMonthly(allUsageRecords);
-
-    const currentMonthRows = allUsageRecords.filter(row => row.monthKey === currentMonthKey);
-    const monthlyAmount = currentMonthRows.reduce((sum, row) => sum + row.amount, 0);
-    const monthlyQty = currentMonthRows.reduce((sum, row) => sum + row.qty, 0);
 
     const categories = {
       safety: 0,
@@ -658,27 +645,25 @@ async function loadDashboardData() {
       categories[key] += row.qty;
     });
 
-    const categorySummary = summarizeByCategory(currentOrderRows);
+    const itemSummary = summarizeByItem(currentOrderRows);
 
     const data = {
       baseDate: new Date().toLocaleDateString("ko-KR"),
-      monthlyAmount,
-      monthlyQty,
+      monthlyAmount: currentOrderAmount,
+      monthlyQty: currentOrderQty,
       monthChange: getMonthChange(monthlyTrend),
-      topCategory: getTopCategory(categorySummary),
+      topCategory: getTopItem(itemSummary),
       categories,
       budget: {
         annualBudget: ANNUAL_BUDGET,
-        historyAmount,
-        currentOrderAmount,
         usedAmount,
         remainingBudget,
         usageRate
       },
       monthlyTrend,
       departmentMonthly,
-      recentHistory: currentOrderRows.map(row => ({
-        month: "발주예정",
+      orderList: currentOrderRows.map(row => ({
+        month: orderTargetMonthLabel,
         category: row.category,
         department: row.department,
         name: row.name,
@@ -712,7 +697,7 @@ async function loadDashboardData() {
       },
       monthlyTrend: [],
       departmentMonthly: [],
-      recentHistory: []
+      orderList: []
     });
 
     alert("구글시트 연결 오류:\n" + error.message);
