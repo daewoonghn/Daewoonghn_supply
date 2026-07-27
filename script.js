@@ -311,8 +311,9 @@ function readHistoryRows(rows, master) {
 
     if (qty <= 0 || !orderDate) return null;
 
-    const category = isNameTagCategory(rawCategory) ? "명찰" : rawCategory;
-    const item = isNameTagCategory(category) ? FIXED_NAME_TAG_ITEM : rawItem;
+    const isNameTag = isNameTagCategory(rawCategory) || isNameTagCategory(rawItem);
+    const category = isNameTag ? "명찰" : rawCategory;
+    const item = isNameTag ? FIXED_NAME_TAG_ITEM : rawItem;
 
     if (!item) return null;
 
@@ -401,6 +402,58 @@ function summarizeDepartmentMonthly(rows) {
   });
 }
 
+function summarizeCurrentDepartmentCost(historyRecords, preferredMonthKey) {
+  if (!historyRecords || historyRecords.length === 0) {
+    return {
+      monthLabel: "-",
+      rows: []
+    };
+  }
+
+  const monthKeys = [...new Set(
+    historyRecords
+      .map(row => row.monthKey)
+      .filter(Boolean)
+  )].sort();
+
+  if (monthKeys.length === 0) {
+    return {
+      monthLabel: "-",
+      rows: []
+    };
+  }
+
+  const targetMonthKey = monthKeys.includes(preferredMonthKey)
+    ? preferredMonthKey
+    : monthKeys[monthKeys.length - 1];
+
+  const targetRows = historyRecords.filter(row => row.monthKey === targetMonthKey);
+
+  const map = {};
+
+  targetRows.forEach(row => {
+    const key = row.department || "-";
+
+    if (!map[key]) {
+      map[key] = {
+        department: key,
+        qty: 0,
+        amount: 0
+      };
+    }
+
+    map[key].qty += row.qty;
+    map[key].amount += row.amount;
+  });
+
+  const targetMonthLabel = targetRows[0]?.monthLabel || targetMonthKey;
+
+  return {
+    monthLabel: targetMonthLabel,
+    rows: Object.values(map).sort((a, b) => b.amount - a.amount)
+  };
+}
+
 function getMonthChange(monthlyTrend) {
   if (!monthlyTrend || monthlyTrend.length < 2) return "-";
 
@@ -436,6 +489,7 @@ function renderDashboard(data) {
   setText("remainingBudget", formatWon(data.remainingBudget));
 
   renderMonthlyTrend(data.monthlyTrend || []);
+  renderCurrentDepartmentCost(data.currentDepartmentCost || { monthLabel: "-", rows: [] });
   renderDepartmentMonthly(data.departmentMonthly || []);
   renderOrderList(data.orderList || []);
 }
@@ -467,6 +521,38 @@ function renderMonthlyTrend(rows) {
   }).join("");
 }
 
+function renderCurrentDepartmentCost(summary) {
+  const tbody = document.getElementById("currentDepartmentBody");
+  const monthLabel = document.getElementById("currentDepartmentBaseMonth");
+
+  if (monthLabel) {
+    monthLabel.textContent = summary.monthLabel && summary.monthLabel !== "-"
+      ? "(" + summary.monthLabel + " 기준)"
+      : "-";
+  }
+
+  if (!tbody) return;
+
+  const rows = summary.rows || [];
+
+  if (rows.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="3">당월 부서별 비용 데이터가 없습니다.</td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(row => `
+    <tr>
+      <td>${escapeHtml(row.department)}</td>
+      <td>${formatNumber(row.qty)}</td>
+      <td>${formatWon(row.amount)}</td>
+    </tr>
+  `).join("");
+}
+
 function renderDepartmentMonthly(rows) {
   const tbody = document.getElementById("departmentMonthlyBody");
   if (!tbody) return;
@@ -480,7 +566,7 @@ function renderDepartmentMonthly(rows) {
     return;
   }
 
-  tbody.innerHTML = rows.slice(0, 30).map(row => `
+  tbody.innerHTML = rows.slice(0, 100).map(row => `
     <tr>
       <td>${escapeHtml(row.monthLabel)}</td>
       <td>${escapeHtml(row.department)}</td>
@@ -516,6 +602,21 @@ function renderOrderList(rows) {
   `).join("");
 }
 
+function setupDepartmentTrendToggle() {
+  const button = document.getElementById("toggleDepartmentTrendBtn");
+  const detail = document.getElementById("departmentTrendDetail");
+
+  if (!button || !detail) return;
+
+  button.addEventListener("click", () => {
+    detail.classList.toggle("open");
+
+    button.textContent = detail.classList.contains("open")
+      ? "부서별 비용트렌드 접기"
+      : "부서별 비용트렌드 상세보기";
+  });
+}
+
 async function loadDashboardData() {
   try {
     renderDashboard({
@@ -534,6 +635,7 @@ async function loadDashboardData() {
         supplies: 0
       },
       monthlyTrend: [],
+      currentDepartmentCost: { monthLabel: "-", rows: [] },
       departmentMonthly: [],
       orderList: []
     });
@@ -604,6 +706,7 @@ async function loadDashboardData() {
 
     const monthlyTrend = summarizeMonthly(historyRecords);
     const departmentMonthly = summarizeDepartmentMonthly(historyRecords);
+    const currentDepartmentCost = summarizeCurrentDepartmentCost(historyRecords, orderTargetMonthKey);
 
     const historyYearRecords = historyRecords.filter(row => {
       return row.date && row.date.getFullYear() === budgetYear;
@@ -617,7 +720,8 @@ async function loadDashboardData() {
     const currentOrderAmount = currentOrderRows.reduce((sum, row) => sum + row.amount, 0);
     const currentOrderQty = currentOrderRows.reduce((sum, row) => sum + row.qty, 0);
 
-    const budgetUsedAmount = historyYearAmount + currentOrderYearRecords.reduce((sum, row) => sum + row.amount, 0);
+    const currentOrderYearAmount = currentOrderYearRecords.reduce((sum, row) => sum + row.amount, 0);
+    const budgetUsedAmount = historyYearAmount + currentOrderYearAmount;
     const remainingBudget = ANNUAL_BUDGET - budgetUsedAmount;
     const usageRate = ANNUAL_BUDGET > 0 ? (budgetUsedAmount / ANNUAL_BUDGET) * 100 : 0;
 
@@ -644,6 +748,7 @@ async function loadDashboardData() {
       remainingBudget,
       categories,
       monthlyTrend,
+      currentDepartmentCost,
       departmentMonthly,
       orderList: currentOrderRows.map(row => ({
         month: orderTargetMonthLabel,
@@ -676,6 +781,7 @@ async function loadDashboardData() {
         supplies: 0
       },
       monthlyTrend: [],
+      currentDepartmentCost: { monthLabel: "-", rows: [] },
       departmentMonthly: [],
       orderList: []
     });
@@ -684,4 +790,7 @@ async function loadDashboardData() {
   }
 }
 
-loadDashboardData();
+document.addEventListener("DOMContentLoaded", () => {
+  setupDepartmentTrendToggle();
+  loadDashboardData();
+});
