@@ -238,8 +238,8 @@ function getMasterData(master, item) {
   };
 }
 
-function isNameTagCategory(category) {
-  return String(category || "").includes("명찰");
+function isNameTagCategory(value) {
+  return String(value || "").includes("명찰");
 }
 
 function readApplicationRows(rows, config, master) {
@@ -373,16 +373,37 @@ function summarizeReportMonthlyTrendByDepartment(historyRecords, currentOrderRec
   const targetYear = orderTargetDate.getFullYear();
   const targetMonth = orderTargetDate.getMonth() + 1;
   const previousYear = targetYear - 1;
+  const orderTargetMonthKey = getMonthKey(orderTargetDate);
 
-  const allRecords = historyRecords.concat(currentOrderRecords);
+  const filteredHistoryRecords = selectedDepartment === "전체"
+    ? historyRecords
+    : historyRecords.filter(row => row.department === selectedDepartment);
 
-  const filteredRecords = selectedDepartment === "전체"
-    ? allRecords
-    : allRecords.filter(row => row.department === selectedDepartment);
+  const filteredCurrentOrderRecords = selectedDepartment === "전체"
+    ? currentOrderRecords
+    : currentOrderRecords.filter(row => row.department === selectedDepartment);
 
   const monthlyMap = {};
 
-  filteredRecords.forEach(row => {
+  filteredHistoryRecords.forEach(row => {
+    if (!row.monthKey) return;
+
+    if (row.monthKey === orderTargetMonthKey) return;
+
+    if (!monthlyMap[row.monthKey]) {
+      monthlyMap[row.monthKey] = {
+        monthKey: row.monthKey,
+        monthLabel: row.monthLabel,
+        qty: 0,
+        amount: 0
+      };
+    }
+
+    monthlyMap[row.monthKey].qty += row.qty;
+    monthlyMap[row.monthKey].amount += row.amount;
+  });
+
+  filteredCurrentOrderRecords.forEach(row => {
     if (!row.monthKey) return;
 
     if (!monthlyMap[row.monthKey]) {
@@ -425,36 +446,17 @@ function summarizeReportMonthlyTrendByDepartment(historyRecords, currentOrderRec
   return result;
 }
 
-function summarizeCurrentDepartmentCost(records, preferredMonthKey) {
-  if (!records || records.length === 0) {
+function summarizeCurrentDepartmentCost(currentOrderRecords) {
+  if (!currentOrderRecords || currentOrderRecords.length === 0) {
     return {
       monthLabel: "-",
       rows: []
     };
   }
-
-  const monthKeys = [...new Set(
-    records
-      .map(row => row.monthKey)
-      .filter(Boolean)
-  )].sort();
-
-  if (monthKeys.length === 0) {
-    return {
-      monthLabel: "-",
-      rows: []
-    };
-  }
-
-  const targetMonthKey = monthKeys.includes(preferredMonthKey)
-    ? preferredMonthKey
-    : monthKeys[monthKeys.length - 1];
-
-  const targetRows = records.filter(row => row.monthKey === targetMonthKey);
 
   const map = {};
 
-  targetRows.forEach(row => {
+  currentOrderRecords.forEach(row => {
     const key = row.department || "-";
 
     if (!map[key]) {
@@ -469,10 +471,10 @@ function summarizeCurrentDepartmentCost(records, preferredMonthKey) {
     map[key].amount += row.amount;
   });
 
-  const targetMonthLabel = targetRows[0]?.monthLabel || targetMonthKey;
+  const monthLabel = currentOrderRecords[0]?.monthLabel || "-";
 
   return {
-    monthLabel: targetMonthLabel,
+    monthLabel,
     rows: Object.values(map).sort((a, b) => b.amount - a.amount)
   };
 }
@@ -729,9 +731,8 @@ async function loadDashboardData() {
       source: "발주예정"
     }));
 
-    const reportRecords = historyRecords.concat(currentOrderRecords);
-
-    const departments = getDepartmentsFromRecords(reportRecords);
+    const departmentSourceRecords = historyRecords.concat(currentOrderRecords);
+    const departments = getDepartmentsFromRecords(departmentSourceRecords);
 
     dashboardTrendState = {
       selectedDepartment: "전체",
@@ -748,13 +749,12 @@ async function loadDashboardData() {
       "전체"
     );
 
-    const currentDepartmentCost = summarizeCurrentDepartmentCost(
-      reportRecords,
-      orderTargetMonthKey
-    );
+    const currentDepartmentCost = summarizeCurrentDepartmentCost(currentOrderRecords);
 
     const historyYearRecords = historyRecords.filter(row => {
-      return row.date && row.date.getFullYear() === budgetYear;
+      return row.date &&
+        row.date.getFullYear() === budgetYear &&
+        row.monthKey !== orderTargetMonthKey;
     });
 
     const currentOrderYearRecords = currentOrderRecords.filter(row => {
