@@ -1,6 +1,6 @@
 const PUBLISHED_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSFbe939fEC-BfJnBqWJFhAKJkEFmH8ANwF7LIos16BSajm6EZkz1_dPnO4vMC2GUl3IY5r9PcAdY1t/pubhtml";
 
-const ANNUAL_BUDGET = 55620000;
+const ANNUAL_BUDGET = 50000000;
 
 const FIXED_NAME_TAG_ITEM = "명찰(향남공장클립집게명찰)";
 
